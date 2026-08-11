@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Acquisition Control Tower</title>
+<style>
+  :root{
+    --ground:#11151B; --panel:#1A2028; --panel2:#212934; --line:#2A333F;
+    --text:#D8DEE6; --muted:#7C8899; --dim:#5A6675;
+    --amber:#E3A34A; --ok:#4E9C86; --fail:#C85F52;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ground); color:var(--text); font-family:var(--mono);
+    font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px 60px}
+
+  /* ---------- header ---------- */
+  header{border-bottom:1px solid var(--line); padding:22px 0 16px; margin-bottom:18px}
+  .htop{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap}
+  h1{
+    font-size:15px;font-weight:600;margin:0;letter-spacing:.16em;text-transform:uppercase;
+  }
+  .sub{color:var(--muted);font-size:12px;margin-top:6px;letter-spacing:.02em}
+  .whois{text-align:right;font-size:11px;color:var(--muted);line-height:1.7}
+  .whois a{color:var(--amber);text-decoration:none;border-bottom:1px solid rgba(227,163,74,.3)}
+  .whois a:hover{border-bottom-color:var(--amber)}
+  .whois strong{color:var(--text);font-weight:600}
+
+  .intro{
+    font-family:var(--sans);font-size:13.5px;line-height:1.65;color:#AEB8C4;
+    max-width:74ch;margin:16px 0 0;
+  }
+  .fixture-note{
+    margin-top:14px;border-left:2px solid var(--amber);background:rgba(227,163,74,.06);
+    padding:9px 14px;font-size:11.5px;color:#C6B08A;max-width:74ch;
+  }
+
+  /* ---------- section headings ---------- */
+  .shead{
+    display:flex;align-items:center;gap:12px;margin:30px 0 12px;
+    font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);
+  }
+  .shead:after{content:"";flex:1;height:1px;background:var(--line)}
+
+  /* ---------- stage bar ---------- */
+  .stages{display:flex;gap:0;border:1px solid var(--line);background:var(--panel);overflow:hidden}
+  .stage{
+    flex:1;padding:14px 12px;border-right:1px solid var(--line);position:relative;
+    transition:background .25s ease;
+  }
+  .stage:last-child{border-right:0}
+  .stage .n{font-size:10px;color:var(--dim);letter-spacing:.14em}
+  .stage .l{font-size:12.5px;margin-top:5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);transition:color .25s}
+  .stage .bar{position:absolute;left:0;bottom:0;height:2px;width:0;background:var(--amber);transition:width .35s ease}
+  .stage.active{background:var(--panel2)}
+  .stage.active .l{color:var(--amber)}
+  .stage.done .l{color:var(--text)}
+  .stage.done .bar{width:100%;background:var(--ok)}
+  .stage.active .bar{width:100%;background:var(--amber)}
+  .stage.errored .l{color:var(--fail)}
+  .stage.errored .bar{width:100%;background:var(--fail)}
+
+  /* ---------- metrics ---------- */
+  .metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:1px}
+  .m{background:var(--panel);padding:15px 14px}
+  .m .k{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim)}
+  .m .v{font-size:23px;margin-top:8px;font-variant-numeric:tabular-nums;letter-spacing:-.01em;transition:color .3s}
+  .m .v.warn{color:var(--amber)} .m .v.bad{color:var(--fail)} .m .v.good{color:var(--ok)}
+  .m .d{font-size:10.5px;color:var(--dim);margin-top:4px}
+
+  /* ---------- controls ---------- */
+  .controls{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;align-items:center}
+  button{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;
+    background:transparent;color:var(--text);border:1px solid var(--line);
+    padding:11px 18px;cursor:pointer;transition:all .15s ease;
+  }
+  button:hover:not(:disabled){border-color:var(--muted);background:var(--panel)}
+  button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  button.primary{border-color:rgba(78,156,134,.5);color:var(--ok)}
+  button.primary:hover:not(:disabled){background:rgba(78,156,134,.09);border-color:var(--ok)}
+  button.danger{border-color:rgba(227,163,74,.45);color:var(--amber)}
+  button.danger:hover:not(:disabled){background:rgba(227,163,74,.09);border-color:var(--amber)}
+  .hint{font-size:11px;color:var(--dim);margin-left:4px}
+
+  /* ---------- split ---------- */
+  .split{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;margin-top:12px}
+  @media(max-width:900px){
+    .split{grid-template-columns:1fr}
+    .metrics{grid-template-columns:repeat(2,1fr)}
+  }
+
+  /* ---------- tables ---------- */
+  .panel{border:1px solid var(--line);background:var(--panel)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{
+    text-align:left;font-weight:500;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--dim);padding:11px 12px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  td{padding:10px 12px;border-bottom:1px solid rgba(42,51,63,.55);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .pill{font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border:1px solid}
+  .pill.ok{color:var(--ok);border-color:rgba(78,156,134,.4)}
+  .pill.warn{color:var(--amber);border-color:rgba(227,163,74,.4)}
+  .pill.fail{color:var(--fail);border-color:rgba(200,95,82,.4)}
+  .pill.idle{color:var(--dim);border-color:var(--line)}
+  tr.row-warn{background:rgba(227,163,74,.045)}
+  .mode{color:var(--dim);font-size:11px}
+
+  /* ---------- log ---------- */
+  .log{height:328px;overflow-y:auto;padding:10px 0;scrollbar-width:thin}
+  .log::-webkit-scrollbar{width:8px}
+  .log::-webkit-scrollbar-thumb{background:var(--line)}
+  .ln{padding:2.5px 14px;font-size:11.5px;display:flex;gap:10px;line-height:1.55}
+  .ln .t{color:var(--dim);flex-shrink:0;font-variant-numeric:tabular-nums}
+  .ln .lv{flex-shrink:0;width:44px}
+  .ln.info .lv{color:var(--muted)}
+  .ln.ok .lv{color:var(--ok)}
+  .ln.warn .lv{color:var(--amber)}
+  .ln.err .lv{color:var(--fail)}
+  .ln.warn{background:rgba(227,163,74,.05)}
+  .ln.err{background:rgba(200,95,82,.06)}
+  .ln .msg{color:#B6C0CC}
+  .ln .msg em{color:var(--text);font-style:normal}
+  .ln.indent .msg{padding-left:14px;color:var(--muted)}
+  .empty{padding:22px 14px;color:var(--dim);font-size:11.5px}
+
+  /* ---------- records ---------- */
+  .recs{margin-top:12px}
+  .recs td{font-size:11.5px}
+  .raw{color:var(--dim);font-size:10.5px;display:block;margin-top:3px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tag{font-size:10px;letter-spacing:.06em;padding:1.5px 6px;border:1px solid var(--line);color:var(--muted)}
+  .tag.ai{color:var(--amber);border-color:rgba(227,163,74,.3)}
+
+  /* ---------- roadmap ---------- */
+  .road{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media(max-width:900px){.road{grid-template-columns:1fr}}
+  .rc{border:1px solid var(--line);background:var(--panel);padding:18px}
+  .rc .w{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+  .rc h3{font-size:13px;font-weight:600;margin:9px 0 10px;letter-spacing:.02em}
+  .rc ul{margin:0;padding-left:16px;font-family:var(--sans);font-size:12.5px;color:#A9B3BF;line-height:1.6}
+  .rc li{margin-bottom:5px}
+
+  footer{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);font-size:11px;color:var(--dim);line-height:1.8}
+  footer a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line)}
+  footer a:hover{color:var(--amber)}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;animation:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="htop">
+    <div>
+      <h1>Data Acquisition Control Tower</h1>
+      <div class="sub">From external signal to reliable data product — extraction, enrichment, validation, monitoring</div>
+    </div>
+    <div class="whois">
+      <strong>Vojislav Vujić</strong><br>
+      Prototype for Better Collective — Research &amp; Insights<br>
+      <a href="https://github.com/vjslvvjc" target="_blank" rel="noopener">Source code on GitHub</a>
+    </div>
+  </div>
+
+  <p class="intro">
+    Competitive signal arrives from sources you don't control and can't ask to stay still. The hard part
+    isn't the first extraction — it's the third month, when a selector silently returns nothing and nobody
+    notices until the numbers are already wrong. This console demonstrates the loop I'd build around that
+    problem: acquire, parse, enrich, validate, load, and watch. Press <em>Break a source</em> to see what
+    happens when the outside world changes shape.
+  </p>
+
+  <div class="fixture-note">
+    This hosted demo runs on bundled fixtures — no live network calls, so nothing here depends on a third
+    party being up or on an API key in the browser. The parsing, selector-fallback, validation and
+    drift-detection logic running on this page is real. The live-network implementation — retry and backoff,
+    rate limiting, robots.txt handling, LLM enrichment, alert dispatch — is in the repository.
+  </div>
+</header>
+
+<div class="shead">Pipeline</div>
+<div class="stages" id="stages">
+  <div class="stage" data-s="acquire"><div class="n">01</div><div class="l">Acquire</div><div class="bar"></div></div>
+  <div class="stage" data-s="parse"><div class="n">02</div><div class="l">Parse</div><div class="bar"></div></div>
+  <div class="stage" data-s="enrich"><div class="n">03</div><div class="l">Enrich</div><div class="bar"></div></div>
+  <div class="stage" data-s="validate"><div class="n">04</div><div class="l">Validate</div><div class="bar"></div></div>
+  <div class="stage" data-s="load"><div class="n">05</div><div class="l">Load</div><div class="bar"></div></div>
+</div>
+
+<div class="metrics">
+  <div class="m"><div class="k">Pipeline health</div><div class="v" id="m-health">—</div><div class="d" id="m-health-d">no run yet</div></div>
+  <div class="m"><div class="k">Last heartbeat</div><div class="v" id="m-beat" style="font-size:19px">—</div><div class="d" id="m-beat-d">awaiting first run</div></div>
+  <div class="m"><div class="k">Records acquired</div><div class="v" id="m-recs">0</div><div class="d" id="m-recs-d">across 3 sources</div></div>
+  <div class="m"><div class="k">Schema drift</div><div class="v" id="m-drift">0</div><div class="d" id="m-drift-d">selectors matching</div></div>
+  <div class="m"><div class="k">Failed sources</div><div class="v" id="m-fail">0</div><div class="d" id="m-fail-d">all responding</div></div>
+</div>
+
+<div class="controls">
+  <button class="primary" id="btn-run">Run pipeline</button>
+  <button class="danger" id="btn-break">Break a source</button>
+  <button id="btn-reset">Reset</button>
+  <span class="hint" id="hint">Run the pipeline first, then break a source mid-flight.</span>
+</div>
+
+<div class="split">
+  <div>
+    <div class="shead">Sources</div>
+    <div class="panel">
+      <table id="src-table">
+        <thead>
+          <tr>
+            <th>Source</th><th>Mode</th><th class="num">Records</th>
+            <th class="num">Latency</th><th class="num">Drift</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="src-body"></tbody>
+      </table>
+    </div>
+  </div>
+  <div>
+    <div class="shead">Event log</div>
+    <div class="panel">
+      <div class="log" id="log"><div class="empty">No events. Run the pipeline to begin.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="shead">Acquired records <span style="color:var(--dim);letter-spacing:0;text-transform:none;font-size:11px">— raw payload parsed to schema, then enriched</span></div>
+<div class="panel recs">
+  <table>
+    <thead>
+      <tr><th>Operator</th><th>Offer</th><th class="num">Value</th><th>Market</th><th>Classification</th><th>Provenance</th></tr>
+    </thead>
+    <tbody id="rec-body"><tr><td colspan="6" class="empty" style="padding:22px 12px">No records.</td></tr></tbody>
+  </table>
+</div>
+
+<div class="shead">From prototype to team</div>
+<div class="road">
+  <div class="rc">
+    <div class="w">Days 0–30</div>
+    <h3>Map and measure</h3>
+    <ul>
+      <li>Inventory every source currently feeding Research &amp; Insights, including the manual ones nobody has written down</li>
+      <li>Classify by acquisition pattern: documented API, undocumented API, static HTML, rendered HTML, file drop</li>
+      <li>Baseline the cost of each manual workflow in hours per week — that becomes the prioritisation ranking</li>
+      <li>Set the monitoring standard before building anything: what a heartbeat is, what a break is, who gets told</li>
+    </ul>
+  </div>
+  <div class="rc">
+    <div class="w">Days 30–60</div>
+    <h3>Productionise the top of the list</h3>
+    <ul>
+      <li>Ship the highest-value pipelines against a shared extraction framework rather than one-off scripts</li>
+      <li>Provenance on every record: source, retrieval timestamp, parser version, confidence</li>
+      <li>Alerting live — heartbeat gaps, record-count anomalies, schema drift, latency regression</li>
+      <li>Agree the handoff contract with the database owners so ingestion stops being a negotiation each time</li>
+    </ul>
+  </div>
+  <div class="rc">
+    <div class="w">Days 60–90</div>
+    <h3>Make it a team, not a person</h3>
+    <ul>
+      <li>Pipeline catalogue with named ownership and an SLA per source tier</li>
+      <li>Runbooks for the five failures that will actually happen, written for someone who hasn't seen them</li>
+      <li>Backlog scored by value and fragility, visible to the commercial teams who consume it</li>
+      <li>Hiring profile for Extraction &amp; Automation Specialist #1, scoped against the gaps the catalogue exposes</li>
+    </ul>
+  </div>
+</div>
+
+<footer>
+  Built by Vojislav Vujić as a working illustration for the Senior Data Acquisition &amp; Automation Specialist role at Better Collective.<br>
+  Fixtures are synthetic and modelled on the shape of public promotional feeds — no third-party site was scraped to build this.
+  Live-network code in the repository respects robots.txt, rate limits and terms of service.<br>
+  <a href="https://github.com/vjslvvjc" target="_blank" rel="noopener">github.com/vjslvvjc</a> ·
+  <a href="https://www.linkedin.com/in/vojislavvujic/" target="_blank" rel="noopener">linkedin.com/in/vojislavvujic</a>
+</footer>
+
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   FIXTURES — synthetic payloads modelled on realistic shapes.
+   ============================================================ */
+
+const FIXTURE_JSON = `{
+  "feed": "partner-promotions",
+  "generated_at": "2026-08-11T14:26:09Z",
+  "items": [
+    {"operator":"Northgate Bet","promo":"First deposit match","value_eur":50,"market":"UK","terms":"wager 5x"},
+    {"operator":"Kestrel Sports","promo":"Risk-free first bet","value_eur":25,"market":"UK","terms":"min odds 1.8"},
+    {"operator":"Vallis Play","promo":"Acca insurance","value_eur":20,"market":"DE","terms":"5+ legs"},
+    {"operator":"Meridian Odds","promo":"Deposit bonus","value_eur":100,"market":"BR","terms":"wager 8x"},
+    {"operator":"Halcyon Bet","promo":"Free bet club","value_eur":10,"market":"SE","terms":"weekly"}
+  ]
+}`;
+
+const FIXTURE_HTML_OK = `
+<div class="offers-grid">
+  <article class="offer-card" data-op="Lyra Sportsbook">
+    <h3 class="offer-title">Bet 10 get 30 in free bets</h3>
+    <span class="offer-value">30</span><span class="offer-market">UK</span>
+  </article>
+  <article class="offer-card" data-op="Corvid Betting">
+    <h3 class="offer-title">Odds boost token daily</h3>
+    <span class="offer-value">15</span><span class="offer-market">IE</span>
+  </article>
+  <article class="offer-card" data-op="Pallas Bet">
+    <h3 class="offer-title">Cashback on first week</h3>
+    <span class="offer-value">40</span><span class="offer-market">DE</span>
+  </article>
+  <article class="offer-card" data-op="Rune Sports">
+    <h3 class="offer-title">Matched deposit up to 75</h3>
+    <span class="offer-value">75</span><span class="offer-market">SE</span>
+  </article>
+</div>`;
+
+/* Same content, restructured markup — the class names the parser
+   was built against are gone. This is what a redesign looks like. */
+const FIXTURE_HTML_BROKEN = `
+<section class="promo-listing">
+  <div class="promo" data-operator="Lyra Sportsbook">
+    <h4 class="promo__headline">Bet 10 get 30 in free bets</h4>
+    <em data-value="30"></em><em data-market="UK"></em>
+  </div>
+  <div class="promo" data-operator="Corvid Betting">
+    <h4 class="promo__headline">Odds boost token daily</h4>
+    <em data-value="15"></em><em data-market="IE"></em>
+  </div>
+  <div class="promo" data-operator="Pallas Bet">
+    <h4 class="promo__headline">Cashback on first week</h4>
+    <em data-value="40"></em><em data-market="DE"></em>
+  </div>
+  <div class="promo" data-operator="Rune Sports">
+    <h4 class="promo__headline"></h4>
+    <em data-value=""></em><em data-market="SE"></em>
+  </div>
+</section>`;
+
+const FIXTURE_HTML_STATIC = `
+<ul class="aff-list">
+  <li class="aff-row" data-brand="Ember Bet"><span class="aff-offer">Weekend reload 20%</span><span class="aff-amt">35</span><span class="aff-geo">BR</span></li>
+  <li class="aff-row" data-brand="Solace Sports"><span class="aff-offer">Bet builder refund</span><span class="aff-amt">20</span><span class="aff-geo">UK</span></li>
+  <li class="aff-row" data-brand="Ember Bet"><span class="aff-offer">Weekend reload 20%</span><span class="aff-amt">35</span><span class="aff-geo">BR</span></li>
+</ul>`;
+
+/* ============================================================
+   SOURCE REGISTRY — each source carries an ordered selector
+   chain. Primary first, fallbacks after. Drift = primary miss.
+   ============================================================ */
+
+const SOURCES = [
+  {
+    id:"src-a", name:"partner-promotions", mode:"REST / JSON", type:"json",
+    baseline:5, latency:[280,520]
+  },
+  {
+    id:"src-b", name:"offers.example-aggregator", mode:"HTML / rendered", type:"html",
+    baseline:4, latency:[900,1900],
+    chain:[
+      {label:"article.offer-card",  item:"article.offer-card", op:el=>el.dataset.op,
+       title:".offer-title", value:".offer-value", market:".offer-market"},
+      {label:"div.promo (fallback)", item:"div.promo", op:el=>el.dataset.operator,
+       title:".promo__headline", value:"[data-value]", market:"[data-market]",
+       valueAttr:"data-value", marketAttr:"data-market"}
+    ]
+  },
+  {
+    id:"src-c", name:"static-affiliate-index", mode:"HTML / static", type:"html",
+    baseline:3, latency:[380,760],
+    chain:[
+      {label:"li.aff-row", item:"li.aff-row", op:el=>el.dataset.brand,
+       title:".aff-offer", value:".aff-amt", market:".aff-geo"}
+    ]
+  }
+];
+
+/* ============================================================
+   STATE
+   ============================================================ */
+
+let broken = false;
+let running = false;
+let hasRun = false;
+let state = {};
+
+function resetState(){
+  state = {};
+  SOURCES.forEach(s=>{
+    state[s.id] = {records:0, latency:null, drift:0, status:"idle", recovered:null, fallback:null};
+  });
+}
+resetState();
+
+/* ============================================================
+   REAL PARSING — DOMParser against the fixture, walking the
+   selector chain until one yields records.
+   ============================================================ */
+
+function parseJSON(raw){
+  const doc = JSON.parse(raw);
+  return doc.items.map(it => ({
+    operator: it.operator,
+    offer: it.promo,
+    value: Number(it.value_eur),
+    market: it.market,
+    raw: JSON.stringify(it).slice(0,70)+"…"
+  }));
+}
+
+function parseHTML(raw, chain){
+  const doc = new DOMParser().parseFromString(raw, "text/html");
+  for (let i=0; i<chain.length; i++){
+    const rule = chain[i];
+    const nodes = Array.from(doc.querySelectorAll(rule.item));
+    if (nodes.length === 0) continue;           // selector miss → try next
+    const records = nodes.map(el=>{
+      const valEl = el.querySelector(rule.value);
+      const mktEl = el.querySelector(rule.market);
+      return {
+        operator: rule.op(el) || null,
+        offer: (el.querySelector(rule.title)?.textContent || "").trim() || null,
+        value: rule.valueAttr
+          ? Number(valEl?.getAttribute(rule.valueAttr) || NaN)
+          : Number((valEl?.textContent || "").trim()),
+        market: rule.marketAttr
+          ? (mktEl?.getAttribute(rule.marketAttr) || null)
+          : ((mktEl?.textContent || "").trim() || null),
+        raw: el.outerHTML.replace(/\s+/g," ").slice(0,70)+"…"
+      };
+    });
+    return {records, ruleIndex:i, ruleLabel:rule.label, attempted:i+1};
+  }
+  return {records:[], ruleIndex:-1, ruleLabel:null, attempted:chain.length};
+}
+
+/* ============================================================
+   REAL VALIDATION — required fields, type coercion, duplicates,
+   record-count delta against the rolling baseline.
+   ============================================================ */
+
+const REQUIRED = ["operator","offer","value","market"];
+
+function validate(records, baseline){
+  const issues = [];
+  let incomplete = 0;
+
+  records.forEach((r,i)=>{
+    const missing = REQUIRED.filter(f => r[f]===null || r[f]==="" || Number.isNaN(r[f]));
+    if (missing.length){
+      incomplete++;
+      issues.push({level:"warn", msg:`record ${i+1}: missing ${missing.join(", ")} — quarantined`});
+    }
+  });
+
+  const seen = new Set(); let dupes = 0;
+  records.forEach(r=>{
+    const k = `${r.operator}|${r.offer}|${r.market}`;
+    if (seen.has(k)) dupes++; else seen.add(k);
+  });
+  if (dupes) issues.push({level:"warn", msg:`${dupes} duplicate record${dupes>1?"s":""} collapsed on (operator, offer, market)`});
+
+  const delta = records.length - baseline;
+  const pct = baseline ? Math.round(Math.abs(delta)/baseline*100) : 0;
+  if (delta !== 0 && pct >= 20){
+    issues.push({level:delta<0?"warn":"info", msg:`record count ${delta>0?"+":""}${delta} vs baseline ${baseline} (${pct}% swing) — above 20% alert threshold`});
+  }
+
+  return {issues, incomplete, dupes, clean: records.length - incomplete - dupes};
+}
+
+/* ============================================================
+   ENRICHMENT — in the repo this calls an LLM with a structured
+   output contract. Here it's a deterministic stand-in, labelled
+   as such so nothing on this page pretends to be a model call.
+   ============================================================ */
+
+function classify(rec){
+  const t = `${rec.offer||""}`.toLowerCase();
+  if (t.includes("free bet") || t.includes("risk-free")) return "acquisition · free bet";
+  if (t.includes("deposit") || t.includes("matched")) return "acquisition · deposit match";
+  if (t.includes("cashback") || t.includes("refund") || t.includes("insurance")) return "retention · loss protection";
+  if (t.includes("boost") || t.includes("reload")) return "retention · engagement";
+  return "unclassified";
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const rnd = ([a,b]) => Math.round(a + Math.random()*(b-a));
+const now = () => new Date().toLocaleTimeString("en-GB",{hour12:false});
+
+let logEmpty = true;
+function log(level, msg, indent){
+  if (logEmpty){ $("log").innerHTML=""; logEmpty=false; }
+  const el = document.createElement("div");
+  el.className = `ln ${level}${indent?" indent":""}`;
+  const lv = {info:"INFO", ok:"OK", warn:"WARN", err:"ERROR"}[level];
+  el.innerHTML = `<span class="t">${now()}</span><span class="lv">${indent?"↳":lv}</span><span class="msg">${msg}</span>`;
+  $("log").appendChild(el);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function setStage(name, cls){
+  document.querySelectorAll(".stage").forEach(s=>{
+    if (s.dataset.s === name){ s.className = "stage " + cls; }
+  });
+}
+function clearStages(){ document.querySelectorAll(".stage").forEach(s=>s.className="stage"); }
+
+function renderSources(){
+  $("src-body").innerHTML = SOURCES.map(s=>{
+    const st = state[s.id];
+    const pill = {
+      idle:'<span class="pill idle">idle</span>',
+      ok:'<span class="pill ok">healthy</span>',
+      warn:'<span class="pill warn">degraded</span>',
+      fail:'<span class="pill fail">failed</span>',
+      run:'<span class="pill idle">running</span>'
+    }[st.status];
+    return `<tr class="${st.status==="warn"?"row-warn":""}">
+      <td>${s.name}${st.fallback?`<span class="raw">parser: ${st.fallback}</span>`:""}</td>
+      <td class="mode">${s.mode}</td>
+      <td class="num">${st.records || "—"}</td>
+      <td class="num">${st.latency!==null?st.latency+"ms":"—"}</td>
+      <td class="num">${st.drift?`<span style="color:var(--amber)">${st.drift}</span>`:"0"}</td>
+      <td>${pill}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderRecords(records){
+  if (!records.length){
+    $("rec-body").innerHTML = `<tr><td colspan="6" class="empty" style="padding:22px 12px">No records.</td></tr>`;
+    return;
+  }
+  $("rec-body").innerHTML = records.slice(0,10).map(r=>`
+    <tr>
+      <td>${r.operator ?? '<span style="color:var(--fail)">null</span>'}</td>
+      <td>${r.offer ?? '<span style="color:var(--fail)">null</span>'}<span class="raw">${r.raw.replace(/</g,"&lt;")}</span></td>
+      <td class="num">${Number.isNaN(r.value)||r.value===null?'<span style="color:var(--fail)">—</span>':"€"+r.value}</td>
+      <td>${r.market ?? "—"}</td>
+      <td><span class="tag ai">${classify(r)}</span></td>
+      <td><span class="mode">${r.src} · ${r.ts}</span></td>
+    </tr>`).join("");
+}
+
+function metric(id, val, cls, detail){
+  const el = $(id); el.textContent = val;
+  el.className = "v" + (cls?" "+cls:"");
+  if (detail) $(id+"-d").textContent = detail;
+}
+
+/* ============================================================
+   PIPELINE RUN
+   ============================================================ */
+
+async function run(){
+  if (running) return;
+  running = true; hasRun = true;
+  $("btn-run").disabled = true; $("btn-break").disabled = true; $("btn-reset").disabled = true;
+  clearStages();
+  resetState(); renderSources(); renderRecords([]);
+
+  const runId = "run-" + Math.random().toString(36).slice(2,8);
+  log("info", `pipeline start · <em>${runId}</em> · ${SOURCES.length} sources registered`);
+
+  let all = [];
+  let totalDrift = 0, failed = 0;
+
+  /* ---- 01 ACQUIRE ---- */
+  setStage("acquire","stage active");
+  await sleep(280);
+  for (const s of SOURCES){
+    state[s.id].status = "run"; renderSources();
+    const lat = rnd(s.latency);
+    await sleep(Math.min(lat/3, 420));
+    state[s.id].latency = lat;
+    log("info", `acquire <em>${s.name}</em> · ${s.mode} · 200 · ${lat}ms`);
+    if (lat > 1500) log("warn", `latency ${lat}ms exceeds 1500ms soft threshold on ${s.name}`, true);
+  }
+  setStage("acquire","stage done");
+
+  /* ---- 02 PARSE ---- */
+  setStage("parse","stage active");
+  await sleep(300);
+  for (const s of SOURCES){
+    let records = [];
+    if (s.type === "json"){
+      records = parseJSON(FIXTURE_JSON);
+      log("ok", `parse <em>${s.name}</em> · ${records.length} records · schema matched`);
+    } else {
+      const fixture = s.id === "src-b"
+        ? (broken ? FIXTURE_HTML_BROKEN : FIXTURE_HTML_OK)
+        : FIXTURE_HTML_STATIC;
+      const res = parseHTML(fixture, s.chain);
+      records = res.records;
+
+      if (res.ruleIndex > 0){
+        totalDrift++;
+        state[s.id].drift = 1;
+        state[s.id].fallback = res.ruleLabel;
+        log("err", `schema drift on <em>${s.name}</em> — primary selector <em>${s.chain[0].item}</em> returned 0 nodes`);
+        log("warn", `selector fallback chain engaged · position ${res.ruleIndex+1}/${s.chain.length} · <em>${res.ruleLabel}</em>`, true);
+        log("ok", `${records.length} records recovered under fallback parser`, true);
+        log("warn", `alert raised → #research-insights-alerts · severity: degraded, not failed`, true);
+      } else if (res.ruleIndex === -1){
+        failed++;
+        state[s.id].status = "fail";
+        log("err", `parse <em>${s.name}</em> — every selector in chain missed. Source marked failed, last-good snapshot retained.`);
+      } else {
+        log("ok", `parse <em>${s.name}</em> · ${records.length} records · schema matched`);
+      }
+    }
+    const ts = now();
+    records.forEach(r=>{ r.src = s.name; r.ts = ts; });
+    state[s.id].records = records.length;
+    all = all.concat(records);
+    renderSources();
+    await sleep(160);
+  }
+  setStage("parse", totalDrift ? "stage errored" : "stage done");
+
+  /* ---- 03 ENRICH ---- */
+  setStage("enrich","stage active");
+  await sleep(420);
+  const classified = all.filter(r=>classify(r)!=="unclassified").length;
+  log("info", `enrich · ${all.length} records submitted for classification · structured-output contract enforced`);
+  log("ok", `${classified}/${all.length} classified into offer taxonomy · ${all.length-classified} returned unclassified`, true);
+  setStage("enrich","stage done");
+
+  /* ---- 04 VALIDATE ---- */
+  setStage("validate","stage active");
+  await sleep(360);
+  const totalBaseline = SOURCES.reduce((a,s)=>a+s.baseline,0);
+  const v = validate(all, totalBaseline);
+  log("info", `validate · ${all.length} records against schema (${REQUIRED.join(", ")})`);
+  if (!v.issues.length){
+    log("ok", `all records passed · 0 quarantined · 0 duplicates`, true);
+  } else {
+    v.issues.forEach(i=>log(i.level==="info"?"info":"warn", i.msg, true));
+  }
+  setStage("validate", v.issues.length ? "stage errored" : "stage done");
+
+  /* ---- 05 LOAD ---- */
+  setStage("load","stage active");
+  await sleep(340);
+  log("info", `load · ${v.clean} clean records handed to ingestion · ${v.incomplete} quarantined for review`);
+  log("ok", `provenance written · source, retrieval timestamp, parser version attached to every row`, true);
+  setStage("load","stage done");
+
+  /* ---- health ---- */
+  SOURCES.forEach(s=>{
+    const st = state[s.id];
+    if (st.status !== "fail") st.status = st.drift ? "warn" : "ok";
+  });
+  renderSources();
+
+  const healthy = SOURCES.length - totalDrift - failed;
+  const health = ((healthy + totalDrift*0.6) / SOURCES.length * 100);
+  metric("m-health", health.toFixed(1)+"%", health>95?"good":health>70?"warn":"bad",
+    failed ? `${failed} source failed` : totalDrift ? `${totalDrift} source degraded, recovered` : "all sources nominal");
+  metric("m-beat", now(), "good", `run ${runId} complete`);
+  metric("m-recs", all.length, all.length?"good":"bad", `across ${SOURCES.length} sources · ${v.clean} clean`);
+  metric("m-drift", totalDrift, totalDrift?"warn":"", totalDrift?"fallback parser active":"selectors matching");
+  metric("m-fail", failed, failed?"bad":"", failed?"last-good snapshot served":"all responding");
+
+  log(totalDrift||failed?"warn":"ok",
+    `pipeline complete · <em>${runId}</em> · ${all.length} acquired · ${v.clean} clean · ${totalDrift} drift · ${failed} failed`);
+
+  renderRecords(all);
+
+  running = false;
+  $("btn-run").disabled = false; $("btn-break").disabled = false; $("btn-reset").disabled = false;
+  $("hint").textContent = broken
+    ? "Source B is running on the fallback parser. Reset to restore the original markup."
+    : "Now press Break a source and run again.";
+}
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+
+$("btn-run").addEventListener("click", run);
+
+$("btn-break").addEventListener("click", async ()=>{
+  if (running) return;
+  broken = true;
+  $("btn-break").disabled = true;
+  log("err", `source change detected — <em>offers.example-aggregator</em> shipped a markup redesign`);
+  log("warn", `class names the parser was built against no longer exist in the document`, true);
+  $("hint").textContent = "Markup changed. Run the pipeline to watch the fallback chain engage.";
+  await sleep(500);
+  log("info", `re-run required to evaluate parser resilience`, true);
+});
+
+$("btn-reset").addEventListener("click", ()=>{
+  if (running) return;
+  broken = false;
+  resetState(); renderSources(); renderRecords([]);
+  clearStages();
+  logEmpty = true;
+  $("log").innerHTML = `<div class="empty">No events. Run the pipeline to begin.</div>`;
+  ["m-health","m-beat","m-recs","m-drift","m-fail"].forEach(id=>{ $(id).className="v"; });
+  $("m-health").textContent="—"; $("m-health-d").textContent="no run yet";
+  $("m-beat").textContent="—"; $("m-beat-d").textContent="awaiting first run";
+  $("m-recs").textContent="0"; $("m-recs-d").textContent="across 3 sources";
+  $("m-drift").textContent="0"; $("m-drift-d").textContent="selectors matching";
+  $("m-fail").textContent="0"; $("m-fail-d").textContent="all responding";
+  $("btn-break").disabled = false;
+  $("hint").textContent = "Run the pipeline first, then break a source mid-flight.";
+});
+
+renderSources();
+</script>
+</body>
+</html>
